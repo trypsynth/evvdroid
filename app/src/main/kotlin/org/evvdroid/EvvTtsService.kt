@@ -239,14 +239,16 @@ class EvvTtsService : TextToSpeechService() {
 				processedText,
 				mode = s.numberMode,
 				readTimeNaturally = s.readTimeNaturally,
-				readRomanNumerals = s.readRomanNumerals
+				readRomanNumerals = s.readRomanNumerals,
+				language = target.language
 			)
 		} else if (s?.readTimeNaturally == true || s?.readRomanNumerals == true) {
 			processedText = Numbers.apply(
 				processedText,
 				mode = Numbers.MODE_DEFAULT,
 				readTimeNaturally = s.readTimeNaturally,
-				readRomanNumerals = s.readRomanNumerals
+				readRomanNumerals = s.readRomanNumerals,
+				language = target.language
 			)
 		}
 		val punctLevel = s?.punctuationLevel ?: Punctuation.LEVEL_SOME

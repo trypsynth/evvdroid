@@ -22,7 +22,16 @@ object Punctuation {
 		val langCode = language?.let { Eci.localeOf(it)?.first } ?: "eng"
 		val map = getSymbolMap(langCode)
 
-		var out = text
+		val phoneticTags = mutableListOf<String>()
+		val hasPhonetic = text.contains("`[")
+		var out = if (hasPhonetic) {
+			PHONETIC_TAG.replace(text) { match ->
+				phoneticTags.add(match.value)
+				"\u0000${phoneticTags.size - 1}\u0000"
+			}
+		} else {
+			text
+		}
 
 		// 1. Process LEVEL_SOME symbols
 		for (ch in SOME_SYMBOLS) {
@@ -33,7 +42,7 @@ object Punctuation {
 		}
 
 		if (level < LEVEL_MOST) {
-			return collapseSpaces(out)
+			return restorePhonetics(collapseSpaces(out), phoneticTags)
 		}
 
 		// 2. Process LEVEL_MOST symbols
@@ -50,7 +59,7 @@ object Punctuation {
 		}
 
 		if (level < LEVEL_ALL) {
-			return collapseSpaces(out)
+			return restorePhonetics(collapseSpaces(out), phoneticTags)
 		}
 
 		// 3. Process LEVEL_ALL symbols (sentence & clause punctuation)
@@ -66,13 +75,25 @@ object Punctuation {
 					';' -> out.replace(";", " $name; ")
 					'?' -> out.replace("?", " $name? ")
 					'!' -> out.replace("!", " $name! ")
+					'`' -> out.replace(Regex("""`(?![\[a-zA-Z\d])"""), " $name ")
 					else -> out.replace(ch.toString(), " $name ")
 				}
 			}
 		}
 
-		return collapseSpaces(out)
+		return restorePhonetics(collapseSpaces(out), phoneticTags)
 	}
+
+	private fun restorePhonetics(text: String, tags: List<String>): String {
+		if (tags.isEmpty()) return text
+		var res = text
+		for ((i, tag) in tags.withIndex()) {
+			res = res.replace("\u0000$i\u0000", tag)
+		}
+		return res
+	}
+
+	private val PHONETIC_TAG = Regex("""`\[[^\]]*\]""")
 
 	private fun collapseSpaces(text: String): String =
 		text.replace(Regex("""[ \t]+"""), " ")

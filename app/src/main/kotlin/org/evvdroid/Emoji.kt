@@ -22,12 +22,16 @@ object Emoji {
 	@Volatile
 	private var userEmojiMap: Map<String, String> = emptyMap()
 
+	@Volatile
+	private var userEmojiEntries: List<Pair<String, String>> = emptyList()
+
 	/**
 	 * Loads user-custom emoji mappings from [file] (UTF-8 encoded).
 	 */
 	fun loadUserEmoji(file: File) {
 		if (!file.exists() || file.length() == 0L) {
 			userEmojiMap = emptyMap()
+			userEmojiEntries = emptyList()
 			return
 		}
 		val map = mutableMapOf<String, String>()
@@ -52,6 +56,7 @@ object Emoji {
 				}
 			}
 			userEmojiMap = map
+			userEmojiEntries = map.toList().sortedByDescending { it.first.length }
 			Log.i(TAG, "Loaded ${map.size} custom emoji mappings from ${file.name}")
 		} catch (e: Exception) {
 			Log.e(TAG, "Failed to load user emoji dictionary", e)
@@ -64,15 +69,13 @@ object Emoji {
 	 */
 	fun apply(text: String): String {
 		if (text.isEmpty()) return text
-		val userMap = userEmojiMap
 		var out = text
 
 		// 1. Apply user custom emoji replacements first (sorted by key length descending)
-		if (userMap.isNotEmpty()) {
-			val sortedUserKeys = userMap.keys.sortedByDescending { it.length }
-			for (key in sortedUserKeys) {
+		val userEntries = userEmojiEntries
+		if (userEntries.isNotEmpty()) {
+			for ((key, say) in userEntries) {
 				if (out.contains(key)) {
-					val say = userMap[key] ?: continue
 					out = out.replace(key, " $say ")
 				}
 			}

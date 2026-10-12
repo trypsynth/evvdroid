@@ -37,16 +37,18 @@ object Numbers {
 		text: String,
 		mode: Int,
 		readTimeNaturally: Boolean = true,
-		readRomanNumerals: Boolean = true
+		readRomanNumerals: Boolean = true,
+		language: Int? = null
 	): String {
 		if (text.isEmpty()) return text
+		val isEnglish = language == null || Eci.localeOf(language)?.first == "eng"
 		var out = text
 
 		if (readTimeNaturally) {
 			out = formatTime(out)
 		}
 
-		if (readRomanNumerals) {
+		if (readRomanNumerals && isEnglish) {
 			out = convertRomanNumerals(out)
 		}
 
@@ -55,7 +57,7 @@ object Numbers {
 		}
 
 		out = NUMBER_TOKEN.replace(out) { match ->
-			formatNumber(match.value, mode)
+			formatNumber(match.value, mode, isEnglish)
 		}
 
 		return out
@@ -98,13 +100,13 @@ object Numbers {
 		return if (total > 0) total else null
 	}
 
-	private fun formatNumber(numStr: String, mode: Int): String {
+	private fun formatNumber(numStr: String, mode: Int, isEnglish: Boolean): String {
 		if (numStr.length <= 1) return numStr
 		return when (mode) {
 			MODE_DIGITS -> numStr.toCharArray().joinToString(" ")
 			MODE_PAIRS -> groupDigits(numStr, 2)
 			MODE_TRIPLETS -> groupDigits(numStr, 3)
-			MODE_WORDS -> numberToWords(numStr)
+			MODE_WORDS -> if (isEnglish) numberToWords(numStr) else groupDigits(numStr, 3)
 			else -> numStr
 		}
 	}

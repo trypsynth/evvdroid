@@ -193,21 +193,38 @@ class EvvEngine private constructor(private var handle: Long, val language: Int)
 		return EvvNative.speak(handle, EngineText.encode(language, ask + text))
 	}
 
+	private val reading = java.util.concurrent.atomic.AtomicInteger(0)
+
 	/** Bytes of PCM, blocking until there are some. 0 ends the utterance and
 	 *  -1 says it was stopped. */
 	fun read(into: ByteArray): Int {
 		if (closed) return -1
-		return EvvNative.read(handle, into)
+		reading.incrementAndGet()
+		return try {
+			if (closed) -1 else EvvNative.read(handle, into)
+		} finally {
+			reading.decrementAndGet()
+		}
 	}
 
 	fun stop() = synchronized(guard) {
 		if (!closed) EvvNative.stop(handle)
 	}
 
-	fun close() = synchronized(guard) {
-		if (closed) return
-		closed = true
-		EvvNative.destroy(handle)
-		handle = 0
+	fun close() {
+		synchronized(guard) {
+			if (closed) return
+			closed = true
+			EvvNative.stop(handle)
+		}
+		// Waits for any read in flight to be unblocked by the stop before
+		// destroying the native instance out from under it.
+		while (reading.get() > 0) {
+			Thread.yield()
+		}
+		synchronized(guard) {
+			EvvNative.destroy(handle)
+			handle = 0
+		}
 	}
 }

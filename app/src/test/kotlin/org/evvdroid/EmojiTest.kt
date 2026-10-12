@@ -130,4 +130,40 @@ class EmojiTest {
 			emptyFile.delete()
 		}
 	}
+
+	@Test
+	fun testNumbersMultilingualRespectsLanguage() {
+		// English converts words
+		val eng = Numbers.apply("42", mode = Numbers.MODE_WORDS, language = 0x00010000)
+		assertEquals("forty-two", eng)
+
+		// Spanish preserves digits instead of forcing English words
+		val spa = Numbers.apply("42", mode = Numbers.MODE_WORDS, language = 0x00020000)
+		assertEquals("42", spa)
+	}
+
+	@Test
+	fun testPunctuationPreservesEngineAnnotations() {
+		// Standalone backtick gets spoken as backtick
+		val standalone = Punctuation.apply("test ` here", level = Punctuation.LEVEL_ALL)
+		assertTrue(standalone.contains("backtick"))
+
+		// Engine phonetic dictionary annotation `[ih1 k`s] should preserve `[
+		val phonetic = Punctuation.apply("`[ih1 k`s]", level = Punctuation.LEVEL_ALL)
+		assertTrue(phonetic.startsWith("`["))
+	}
+
+	@Test
+	fun testDictionarySanitizesControlCharacters() {
+		val tempFile = File.createTempFile("test-sanitize", ".dic")
+		try {
+			Dictionaries.addOrUpdateDictEntry(tempFile, "hello\tworld\r\n", "foo\tbar")
+			val entries = Dictionaries.readDictEntries(tempFile)
+			assertEquals(1, entries.size)
+			assertEquals("hello world", entries[0].key)
+			assertEquals("foo bar", entries[0].say)
+		} finally {
+			tempFile.delete()
+		}
+	}
 }

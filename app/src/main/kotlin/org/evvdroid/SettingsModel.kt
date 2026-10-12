@@ -112,7 +112,11 @@ class SettingsModel(context: Context) {
 		val want = languages.getOrNull(which) ?: return
 		language = which
 		settings.previewLanguage = want
-		preview?.useLanguage(want)
+		preview?.useLanguage(want) {
+			if (!settings.shapeIsCustom(voice)) adoptVoice()
+			shape.clear()
+			shape.putAll(settings.shape(voice))
+		}
 	}
 
 	fun chooseVoice(which: Int) {

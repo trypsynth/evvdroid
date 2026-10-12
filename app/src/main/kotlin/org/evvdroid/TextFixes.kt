@@ -55,7 +55,7 @@ object TextFixes {
 
 	/** The engine does not tolerate a space in front of a punctuation mark. The
 	 *  lookahead keeps decimals and thousands separators out of it. */
-	private val SPACE_BEFORE_A_MARK = Regex("""([A-Za-z]+|\d+|\W+)\s+([:.!;,?](?![A-Za-z]|\d))""")
+	private val SPACE_BEFORE_A_MARK = Regex("""(\S+)\s+([:.!;,?](?![A-Za-z\d]))""")
 
 	/** A number grouped with commas around a round thousand, which the engine
 	 *  reads as "one comma hundred". The driver spells this out as four rules,

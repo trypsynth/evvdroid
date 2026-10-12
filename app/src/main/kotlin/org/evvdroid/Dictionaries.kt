@@ -142,9 +142,12 @@ object Dictionaries {
 
 	/** Writes list of dictionary entries to [file] encoded as UTF-8 for emoji or ISO-8859-1 for traditional dictionaries. */
 	fun writeDictEntries(file: File, entries: List<DictEntry>) {
+		val needsUtf8 = file.name.contains("emoji", ignoreCase = true) ||
+			entries.any { e -> e.key.any { it.code > 0xFF } || e.say.any { it.code > 0xFF } }
+		val charset = if (needsUtf8) Charsets.UTF_8 else charsetFor(file)
 		try {
 			file.parentFile?.mkdirs()
-			file.bufferedWriter(charsetFor(file)).use { writer ->
+			file.bufferedWriter(charset).use { writer ->
 				for (entry in entries) {
 					val prefix = if (entry.suspended) "#" else ""
 					if (entry.caseSensitive) {
@@ -167,15 +170,18 @@ object Dictionaries {
 		caseSensitive: Boolean = false,
 		suspended: Boolean = false
 	): List<DictEntry> {
+		val cleanKey = key.replace("[\t\r\n]".toRegex(), " ").trim()
+		val cleanSay = say.replace("[\t\r\n]".toRegex(), " ").trim()
+		if (cleanKey.isEmpty()) return readDictEntries(file)
 		val list = readDictEntries(file).toMutableList()
 		val index = list.indexOfFirst {
 			if (caseSensitive || it.caseSensitive) {
-				it.key == key
+				it.key == cleanKey
 			} else {
-				it.key.equals(key, ignoreCase = true)
+				it.key.equals(cleanKey, ignoreCase = true)
 			}
 		}
-		val newEntry = DictEntry(key, say, caseSensitive, suspended)
+		val newEntry = DictEntry(cleanKey, cleanSay, caseSensitive, suspended)
 		if (index >= 0) {
 			list[index] = newEntry
 		} else {
@@ -233,8 +239,24 @@ object Dictionaries {
 		0
 	}
 
-	private fun charsetFor(file: File): java.nio.charset.Charset =
-		if (file.name.contains("emoji", ignoreCase = true)) Charsets.UTF_8 else Charsets.ISO_8859_1
+	private fun charsetFor(file: File): java.nio.charset.Charset {
+		if (file.name.contains("emoji", ignoreCase = true)) return Charsets.UTF_8
+		if (file.exists() && file.length() > 0L) {
+			try {
+				val sample = file.inputStream().use { input ->
+					val buf = ByteArray(minOf(file.length().toInt(), 4096))
+					val read = input.read(buf)
+					if (read > 0) buf.copyOf(read) else buf
+				}
+				val decoder = Charsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+				decoder.decode(java.nio.ByteBuffer.wrap(sample))
+				if (sample.any { (it.toInt() and 0x80) != 0 }) return Charsets.UTF_8
+			} catch (_: Exception) {
+				return Charsets.ISO_8859_1
+			}
+		}
+		return Charsets.ISO_8859_1
+	}
 
 	private const val TAG = "evvdroid"
 }
