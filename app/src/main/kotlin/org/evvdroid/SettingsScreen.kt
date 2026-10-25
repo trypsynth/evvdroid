@@ -46,6 +46,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -77,6 +78,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogWindowProvider
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.roundToInt
@@ -337,7 +339,10 @@ private fun UpdateChannelRow(state: SettingsModel) {
 			modifier = Modifier.semantics {
 				paneTitle = dialogTitle
 			},
-			title = { Text(dialogTitle) },
+			title = {
+				DialogWindowTitle(dialogTitle)
+				Text(dialogTitle)
+			},
 			text = {
 				Column(
 					modifier = Modifier
@@ -472,6 +477,7 @@ private fun UpdateDialog(state: SettingsModel, onClose: () -> Unit) {
 			paneTitle = dialogTitle
 		},
 		title = {
+			DialogWindowTitle(dialogTitle)
 			Text(
 				text = dialogTitle,
 				style = MaterialTheme.typography.titleLarge
@@ -1330,4 +1336,14 @@ private fun ActionRow(label: String, onClick: () -> Unit) {
 			}
 			.padding(horizontal = 16.dp, vertical = 14.dp)
 	)
+}
+
+/**
+ * Compose names every dialog window "Dialog", which is what TalkBack announces when it opens.
+ * Setting paneTitle on the content doesn't change that, so give the window itself a title.
+ */
+@Composable
+private fun DialogWindowTitle(title: String) {
+	val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+	SideEffect { window?.setTitle(title) }
 }

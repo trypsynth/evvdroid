@@ -45,6 +45,13 @@ class UpdaterTest {
 		assertNotNull(x86Asset)
 		assertEquals("evvdroid-0.2.0-x86_64.apk", x86Asset!!.name)
 
+		// 32-bit x86 must not take the x86_64 build
+		val x86Only = listOf(
+			ReleaseAsset("evvdroid-x86_64.apk", "https://example.com/x86_64.apk", 1L),
+			ReleaseAsset("evvdroid-universal.apk", "https://example.com/universal.apk", 2L)
+		)
+		assertEquals("evvdroid-universal.apk", Updater.selectAsset(x86Only, arrayOf("x86"))!!.name)
+
 		// Test unknown ABI fallback to universal
 		val fallbackAsset = Updater.selectAsset(assets, arrayOf("mips"))
 		assertNotNull(fallbackAsset)
@@ -68,16 +75,17 @@ class UpdaterTest {
 		val devRelease = ReleaseInfo(
 			tagName = "dev",
 			name = "Development build 28 (57f464f)",
-			body = "Dev notes",
+			body = "build: 28\n\n- 57f464f Make gradlew executable",
 			isPrerelease = true,
 			publishedAt = "2026-10-25T00:00:00Z",
 			asset = ReleaseAsset("evvdroid-arm64-v8a.apk", "http://example.com", 1234L)
 		)
 
-		// On stable version 0.2.0, switching to dev offers update
-		assertTrue(Updater.isUpdateAvailable(devRelease, UpdateChannel.DEVELOPMENT, "0.2.0"))
-		// If current app version already matches the dev build name
-		assertFalse(Updater.isUpdateAvailable(devRelease, UpdateChannel.DEVELOPMENT, "Development build 28 (57f464f)"))
+		assertTrue(Updater.isUpdateAvailable(devRelease, UpdateChannel.DEVELOPMENT, "0.2.0", 27))
+		assertFalse(Updater.isUpdateAvailable(devRelease, UpdateChannel.DEVELOPMENT, "0.2.0", 28))
+		assertFalse(Updater.isUpdateAvailable(devRelease, UpdateChannel.DEVELOPMENT, "0.2.0", 30))
+		// A build with no history to count has no number, and is older than any release.
+		assertTrue(Updater.isUpdateAvailable(devRelease, UpdateChannel.DEVELOPMENT, "0.2.0", 0))
 	}
 
 	@Test

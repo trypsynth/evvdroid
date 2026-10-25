@@ -5,8 +5,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -122,6 +124,9 @@ class SettingsModel(context: Context) {
 
 	var isUpdateDialogOpen by mutableStateOf(false)
 
+	/** The check or the download in flight, of which there is at most one. */
+	private var updateJob: Job? = null
+
 	init {
 		preview?.open {
 			// A voice's own settings are what the sliders start at, and only
@@ -141,14 +146,17 @@ class SettingsModel(context: Context) {
 	}
 
 	fun chooseUpdateChannel(which: Int) {
+		// What was in flight belongs to the other channel, and its answer must not land here.
+		updateJob?.cancel()
 		updateChannel = which
 		settings.updateChannel = which
 		updateStatus = UpdateStatus.Idle
 	}
 
 	fun checkForUpdates() {
+		if (updateStatus is UpdateStatus.Checking || updateStatus is UpdateStatus.Downloading) return
 		updateStatus = UpdateStatus.Checking
-		scope.launch {
+		updateJob = scope.launch {
 			val channel = UpdateChannel.fromId(updateChannel)
 			Updater.fetchRelease(channel)
 				.onSuccess { rel ->
@@ -161,6 +169,7 @@ class SettingsModel(context: Context) {
 					}
 				}
 				.onFailure { err ->
+					if (err is CancellationException) return@onFailure
 					updateStatus = UpdateStatus.Error(err.message ?: "Check failed")
 				}
 		}
@@ -175,15 +184,18 @@ class SettingsModel(context: Context) {
 	}
 
 	fun downloadAndInstall(context: Context, release: ReleaseInfo) {
+		// Two downloads would write the same file, and each deletes the other's when it starts.
+		if (updateStatus is UpdateStatus.Downloading) return
 		updateStatus = UpdateStatus.Downloading(release, 0, 0, release.asset.size)
 		isUpdateDialogOpen = true
-		scope.launch {
+		updateJob = scope.launch {
 			Updater.downloadApk(release, app) { percent, downloaded, total ->
 				updateStatus = UpdateStatus.Downloading(release, percent, downloaded, total)
 			}.onSuccess { file ->
 				updateStatus = UpdateStatus.ReadyToInstall(release, file)
 				installUpdate(context, file)
 			}.onFailure { err ->
+				if (err is CancellationException) return@onFailure
 				updateStatus = UpdateStatus.Error(err.message ?: "Download failed")
 			}
 		}

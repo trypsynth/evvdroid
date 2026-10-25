@@ -156,7 +156,9 @@ object Updater {
 		if (apkAssets.isEmpty()) return null
 
 		for (abi in supportedAbis) {
-			val match = apkAssets.firstOrNull { it.name.contains(abi, ignoreCase = true) }
+			// Whole token only, since "x86" is also the start of "x86_64".
+			val token = Regex("(?<![A-Za-z0-9_])" + Regex.escape(abi) + "(?![A-Za-z0-9_])", RegexOption.IGNORE_CASE)
+			val match = apkAssets.firstOrNull { token.containsMatchIn(it.name) }
 			if (match != null) return match
 		}
 
@@ -181,20 +183,25 @@ object Updater {
 		return false
 	}
 
+	/** The number on the "build: <n>" line the development workflow puts first in the release notes. */
+	fun buildNumberOf(release: ReleaseInfo): Int? =
+		Regex("""^\s*build:\s*(\d+)""", RegexOption.MULTILINE).find(release.body)?.groupValues?.get(1)?.toIntOrNull()
+
 	fun isUpdateAvailable(
 		release: ReleaseInfo,
 		channel: UpdateChannel,
-		currentVersionName: String
+		currentVersionName: String,
+		currentBuildNumber: Int = BuildConfig.BUILD_NUMBER
 	): Boolean {
 		return when (channel) {
 			UpdateChannel.STABLE -> {
 				isNewerVersion(currentVersionName, release.tagName)
 			}
 			UpdateChannel.DEVELOPMENT -> {
-				// If running stable, any dev build is considered a channel switch / update.
-				// If release name is different or current version doesn't mention dev build, offer update.
-				!currentVersionName.equals(release.tagName, ignoreCase = true) &&
-				!currentVersionName.contains(release.name, ignoreCase = true)
+				// The dev release keeps one tag and its title is rewritten, so the build number in its
+				// notes is the only thing that says which build it holds. Without one, offer it.
+				val remote = buildNumberOf(release)
+				remote == null || remote > currentBuildNumber
 			}
 		}
 	}
@@ -271,6 +278,10 @@ object Updater {
 						}
 					}
 					output.flush()
+					// A connection that drops cleanly ends the read early without an error.
+					if (headerLength > 0 && downloaded != headerLength) {
+						throw java.io.IOException("The download ended early ($downloaded of $headerLength bytes)")
+					}
 					withContext(Dispatchers.Main) {
 						onProgress(100, downloaded, effectiveTotal)
 					}
