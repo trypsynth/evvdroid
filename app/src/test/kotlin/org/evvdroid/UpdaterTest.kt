@@ -18,6 +18,12 @@ class UpdaterTest {
 	}
 
 	@Test
+	fun testReleaseEndpoint() {
+		assertEquals("https://api.github.com/repos/trypsynth/evvdroid/releases/latest", Updater.releaseEndpoint(UpdateChannel.STABLE))
+		assertEquals("https://api.github.com/repos/trypsynth/evvdroid/releases/tags/dev", Updater.releaseEndpoint(UpdateChannel.DEVELOPMENT))
+	}
+
+	@Test
 	fun testVersionComparison() {
 		assertTrue(Updater.isNewerVersion("0.1.0", "v0.2.0"))
 		assertTrue(Updater.isNewerVersion("0.2.0", "0.2.1"))

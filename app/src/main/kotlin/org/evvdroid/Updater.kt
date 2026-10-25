@@ -62,13 +62,19 @@ sealed class UpdateStatus {
 
 object Updater {
 
-	private const val RELEASES_URL = "https://api.github.com/repos/trypsynth/evvdroid/releases"
+	private const val GITHUB_RELEASES_URL = "https://api.github.com/repos/trypsynth/evvdroid/releases"
 	private const val USER_AGENT = "evvdroid-updater"
 	private const val MAX_REDIRECTS = 5
 
+	fun releaseEndpoint(channel: UpdateChannel): String = when (channel) {
+		UpdateChannel.STABLE -> "$GITHUB_RELEASES_URL/latest"
+		UpdateChannel.DEVELOPMENT -> "$GITHUB_RELEASES_URL/tags/dev"
+	}
+
 	suspend fun fetchRelease(channel: UpdateChannel): Result<ReleaseInfo> = withContext(Dispatchers.IO) {
 		runCatching {
-			val url = URL(RELEASES_URL)
+			val endpoint = releaseEndpoint(channel)
+			val url = URL(endpoint)
 			val conn = (url.openConnection() as HttpURLConnection).apply {
 				requestMethod = "GET"
 				connectTimeout = 15_000
@@ -79,40 +85,19 @@ object Updater {
 
 			val responseCode = conn.responseCode
 			if (responseCode !in 200..299) {
-				val err = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-				throw Exception("HTTP $responseCode: ${conn.responseMessage} $err".trim())
+				val errBody = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+				android.util.Log.w("Updater", "HTTP $responseCode fetching release from $endpoint: $errBody")
+				val cleanMessage = when (responseCode) {
+					403 -> "HTTP 403: rate limit reached, try again later"
+					404 -> "Release not found for channel ${channel.name.lowercase()}"
+					in 500..599 -> "GitHub server error (HTTP $responseCode)"
+					else -> "HTTP $responseCode: ${conn.responseMessage}"
+				}
+				throw Exception(cleanMessage)
 			}
 
 			val jsonText = conn.inputStream.bufferedReader().use { it.readText() }
-			val releasesArray = JSONArray(jsonText)
-
-			var targetRelease: JSONObject? = null
-			for (i in 0 until releasesArray.length()) {
-				val rel = releasesArray.getJSONObject(i)
-				val isPrerelease = rel.optBoolean("prerelease", false)
-				val isDraft = rel.optBoolean("draft", false)
-				val tag = rel.optString("tag_name", "")
-
-				if (isDraft) continue
-
-				when (channel) {
-					UpdateChannel.STABLE -> {
-						if (!isPrerelease && tag != "dev") {
-							targetRelease = rel
-							break
-						}
-					}
-					UpdateChannel.DEVELOPMENT -> {
-						if (tag == "dev" || isPrerelease) {
-							targetRelease = rel
-							break
-						}
-					}
-				}
-			}
-
-			val releaseObj = targetRelease
-				?: throw Exception("No releases found for channel ${channel.name.lowercase()}")
+			val releaseObj = JSONObject(jsonText)
 
 			val tagName = releaseObj.optString("tag_name", "")
 			val name = releaseObj.optString("name", tagName)
@@ -244,8 +229,16 @@ object Updater {
 					if (++redirects > MAX_REDIRECTS) throw Exception("Too many redirects")
 					currentUrl = URL(currentUrl, location)
 				} else if (responseCode !in 200..299) {
+					val errBody = attempt.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
 					attempt.disconnect()
-					throw Exception("HTTP $responseCode: ${attempt.responseMessage}")
+					android.util.Log.w("Updater", "HTTP $responseCode downloading from $currentUrl: $errBody")
+					val cleanMessage = when (responseCode) {
+						403 -> "HTTP 403: rate limit reached, try again later"
+						404 -> "Download file not found"
+						in 500..599 -> "GitHub server error (HTTP $responseCode)"
+						else -> "HTTP $responseCode: ${attempt.responseMessage}"
+					}
+					throw Exception(cleanMessage)
 				} else {
 					found = attempt
 					break
