@@ -5,6 +5,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import java.io.File
 
 /**
  * What the settings screen is showing, and the engine it can hear itself on.
@@ -104,6 +110,18 @@ class SettingsModel(context: Context) {
 
 	val gender: Int get() = shape[Eci.VOICE_GENDER] ?: 0
 
+	private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+	val currentVersionName: String = BuildConfig.VERSION_NAME
+
+	var updateChannel by mutableStateOf(settings.updateChannel)
+		private set
+
+	var updateStatus: UpdateStatus by mutableStateOf(UpdateStatus.Idle)
+		private set
+
+	var isUpdateDialogOpen by mutableStateOf(false)
+
 	init {
 		preview?.open {
 			// A voice's own settings are what the sliders start at, and only
@@ -118,7 +136,65 @@ class SettingsModel(context: Context) {
 	}
 
 	fun close() {
+		scope.cancel()
 		preview?.close()
+	}
+
+	fun chooseUpdateChannel(which: Int) {
+		updateChannel = which
+		settings.updateChannel = which
+		updateStatus = UpdateStatus.Idle
+	}
+
+	fun checkForUpdates() {
+		updateStatus = UpdateStatus.Checking
+		scope.launch {
+			val channel = UpdateChannel.fromId(updateChannel)
+			Updater.fetchRelease(channel)
+				.onSuccess { rel ->
+					val isNewer = Updater.isUpdateAvailable(rel, channel, currentVersionName)
+					if (isNewer) {
+						updateStatus = UpdateStatus.UpdateAvailable(rel, isNewer = true)
+						isUpdateDialogOpen = true
+					} else {
+						updateStatus = UpdateStatus.UpToDate(rel)
+					}
+				}
+				.onFailure { err ->
+					updateStatus = UpdateStatus.Error(err.message ?: "Check failed")
+				}
+		}
+	}
+
+	fun openUpdateDialog() {
+		isUpdateDialogOpen = true
+	}
+
+	fun closeUpdateDialog() {
+		isUpdateDialogOpen = false
+	}
+
+	fun downloadAndInstall(context: Context, release: ReleaseInfo) {
+		updateStatus = UpdateStatus.Downloading(release, 0, 0, release.asset.size)
+		isUpdateDialogOpen = true
+		scope.launch {
+			Updater.downloadApk(release, app) { percent, downloaded, total ->
+				updateStatus = UpdateStatus.Downloading(release, percent, downloaded, total)
+			}.onSuccess { file ->
+				updateStatus = UpdateStatus.ReadyToInstall(release, file)
+				installUpdate(context, file)
+			}.onFailure { err ->
+				updateStatus = UpdateStatus.Error(err.message ?: "Download failed")
+			}
+		}
+	}
+
+	fun installUpdate(context: Context, file: File) {
+		if (!Updater.canInstallPackages(context)) {
+			Updater.requestInstallPermission(context)
+		} else {
+			Updater.installApk(context, file)
+		}
 	}
 
 	fun percentOf(param: Int): Int = Eci.toPercent(param, shape[param] ?: 0)
