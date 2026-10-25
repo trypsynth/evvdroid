@@ -64,6 +64,7 @@ object Updater {
 
 	private const val RELEASES_URL = "https://api.github.com/repos/trypsynth/evvdroid/releases"
 	private const val USER_AGENT = "evvdroid-updater"
+	private const val MAX_REDIRECTS = 5
 
 	suspend fun fetchRelease(channel: UpdateChannel): Result<ReleaseInfo> = withContext(Dispatchers.IO) {
 		runCatching {
@@ -222,33 +223,35 @@ object Updater {
 
 			val targetFile = File(updatesDir, release.asset.name)
 
-			var currentUrl = release.asset.downloadUrl
-			var redirectCount = 0
-			var connection: HttpURLConnection? = null
-
-			while (redirectCount < 5) {
-				val url = URL(currentUrl)
-				connection = (url.openConnection() as HttpURLConnection).apply {
-					instanceFollowRedirects = true
+			// GitHub sends a download to its storage host through a redirect. They are followed here
+			// rather than by HttpURLConnection so that a relative Location resolves against the
+			// URL that gave it and a chain that never ends fails instead of being read as the APK.
+			var currentUrl = URL(release.asset.downloadUrl)
+			var found: HttpURLConnection? = null
+			var redirects = 0
+			while (true) {
+				val attempt = (currentUrl.openConnection() as HttpURLConnection).apply {
+					instanceFollowRedirects = false
 					connectTimeout = 20_000
 					readTimeout = 20_000
 					setRequestProperty("User-Agent", USER_AGENT)
 				}
-				val responseCode = connection.responseCode
+				val responseCode = attempt.responseCode
 				if (responseCode in 300..399) {
-					val location = connection.getHeaderField("Location")
-						?: throw Exception("Redirect without Location header")
-					currentUrl = location
-					connection.disconnect()
-					redirectCount++
+					val location = attempt.getHeaderField("Location")
+					attempt.disconnect()
+					if (location == null) throw Exception("Redirect without Location header")
+					if (++redirects > MAX_REDIRECTS) throw Exception("Too many redirects")
+					currentUrl = URL(currentUrl, location)
 				} else if (responseCode !in 200..299) {
-					throw Exception("HTTP $responseCode: ${connection.responseMessage}")
+					attempt.disconnect()
+					throw Exception("HTTP $responseCode: ${attempt.responseMessage}")
 				} else {
+					found = attempt
 					break
 				}
 			}
-
-			val conn = connection ?: throw Exception("Failed to open download connection")
+			val conn = found ?: throw Exception("Failed to open download connection")
 			val headerLength = conn.contentLengthLong
 			val effectiveTotal = if (headerLength > 0) headerLength else release.asset.size
 
